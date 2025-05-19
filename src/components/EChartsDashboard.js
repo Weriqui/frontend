@@ -26,7 +26,8 @@ import {
   AccordionSummary,
   AccordionDetails,
 } from '@mui/material';
-import { format, subDays, differenceInDays } from 'date-fns';
+import { subDays, differenceInDays } from 'date-fns';
+import { useLocalStorage } from '../hooks/useLocalStorage';
 import { ptBR } from 'date-fns/locale';
 import { LocalizationProvider, DatePicker } from '@mui/x-date-pickers';
 import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns';
@@ -34,6 +35,7 @@ import chartColors from './colors'; // Importa as cores
 import MenuIcon from '@mui/icons-material/Menu';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import { ChromePicker } from 'react-color';
+import { format } from 'date-fns';
 
 function TabPanel(props) {
   const { children, value, index, ...other } = props;
@@ -58,51 +60,42 @@ function EChartsDashboard() {
   const [callixChartOption, setCallixChartOption] = useState(null);
   const [api4comChartOption, setApi4comChartOption] = useState(null);
   const [membros, setMembros] = useState([]);
-  const [membrosSelecionados, setMembrosSelecionados] = useState(() => {
-    const saved = localStorage.getItem('membrosSelecionados');
-    return saved ? JSON.parse(saved) : [];
-  });
+  const [membrosSelecionados, setMembrosSelecionados] = useLocalStorage('membrosSelecionados', []);
 
-  const [startDate, setStartDate] = useState(() => {
-    const saved = localStorage.getItem('startDate');
-    return saved ? new Date(saved) : subDays(new Date(), 6);
-  });
 
-  const [endDate, setEndDate] = useState(() => {
-    const saved = localStorage.getItem('endDate');
-    return saved ? new Date(saved) : new Date();
-  });
+  const [startDate, setStartDate] = useLocalStorage('startDate', subDays(new Date(), 6));;
+
+  const [endDate, setEndDate] = useLocalStorage('endDate', new Date());
   const [chamadasPeriodoAtual, setChamadasPeriodoAtual] = useState(0);
   const [comparacaoPeriodo, setComparacaoPeriodo] = useState(0);
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [tabValue, setTabValue] = useState(0);
 
-  const [qualificacoesSelecionadas, setQualificacoesSelecionadas] = useState([]);
+  const [qualificacoesSelecionadas, setQualificacoesSelecionadas] = useLocalStorage('qualificacoesSelecionadas', []);
 
   const [todasQualificacoes, setTodasQualificacoes] = useState([]);
 
-  const [customization, setCustomization] = useState({
-    chartColors: {
-      api4com: chartColors.api4com,
-      callix: chartColors.callix,
-      qualificacoes: {}, // Inicializa como objeto vazio
-    },
-    backgroundType: 'color', // 'color', 'gradient', 'image'
-    backgroundColor: chartColors.background,
-    backgroundGradient: {
-      from: '#ffffff',
-      to: '#000000',
-    },
-    backgroundImage: '',
-    mainChartHeight: 400,
-    callixChartHeight: 400,
-    api4comChartHeight: 400,
-    lineChartHeight: 400,
-    mainChartWidth: '100%',
-    callixChartWidth: '100%',
-    api4comChartWidth: '100%',
-    lineChartWidth: '100%',
+  const [customization, setCustomization] =
+    useLocalStorage('customization', {
+      chartColors: {
+        api4com: chartColors.api4com,
+        callix: chartColors.callix,
+        qualificacoes: {}
+      },
+      backgroundType: 'color',
+      backgroundColor: chartColors.background,
+      backgroundGradient: { from: '#ffffff', to: '#000000' },
+      backgroundImage: '',
+      mainChartHeight: 400,
+      callixChartHeight: 400,
+      api4comChartHeight: 400,
+      lineChartHeight: 400,
+      mainChartWidth: '100%',
+      callixChartWidth: '100%',
+      api4comChartWidth: '100%',
+      lineChartWidth: '100%'
   });
+
   useEffect(() => {
     localStorage.setItem('membrosSelecionados', JSON.stringify(membrosSelecionados));
   }, [membrosSelecionados]);
@@ -118,34 +111,39 @@ function EChartsDashboard() {
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const response = await axios.get('https://automation-pipe-af55514da494.herokuapp.com/api/chamadas');
+        // Prepare os parâmetros de data no formato que o seu backend espera
+        const params = {};
+        if (startDate) params.start = format(startDate, 'yyyy-MM-dd');
+        if (endDate) params.end = format(endDate, 'yyyy-MM-dd');
+
+        const response = await axios.get(
+          'https://automation-pipe-af55514da494.herokuapp.com/api/chamadas', {
+            params
+          }
+        );
         const dados = response.data;
 
-        // Extrair membros únicos e apenas o primeiro nome
+        // Extrair membros, qualificações, cores etc, igual antes:
         const operadores = [
-          ...new Set(
-            dados.map((item) => (item.operador || '').split(' ')[0]).filter(Boolean)
-          ),
+          ...new Set(dados.map(i => (i.operador || '').split(' ')[0]).filter(Boolean))
         ];
         setMembros(operadores);
         setMembrosSelecionados(operadores);
-
         setData(dados);
 
-        // Extrair todas as qualificações disponíveis
         const qualificacoes = [
           ...new Set(
-            dados
-              .filter((item) => item.plataforma === 'callix')
-              .map((item) => item.qualificacao || 'Não Informado')
-          ),
+            dados.filter(i => i.plataforma === 'callix')
+            .map(i => i.qualificacao || 'Não Informado')
+          )
         ];
-
         setTodasQualificacoes(qualificacoes);
 
-        // Inicializar cores para as qualificações
+        // Inicializa cores das qualificações se precisar…
         setCustomization((prevCustomization) => {
-          const newQualificacoesColors = { ...prevCustomization.chartColors.qualificacoes };
+          const newQualificacoesColors = {
+            ...prevCustomization.chartColors.qualificacoes
+          };
           let hasNew = false;
           let colorIndex = 0;
           const defaultColorPalette = [
@@ -186,9 +184,8 @@ function EChartsDashboard() {
         console.error('Erro ao buscar os dados', error);
       }
     };
-
     fetchData();
-  }, []);
+  }, [startDate, endDate]);
 
   useEffect(() => {
     if (data.length > 0) {
